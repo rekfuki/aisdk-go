@@ -69,7 +69,6 @@ func MessagesToAnthropic(messages []Message) ([]anthropic.MessageParam, []anthro
 					})
 				}
 			}
-			break
 		case "assistant":
 			for _, part := range message.Parts {
 				switch part.Type {
@@ -111,7 +110,6 @@ func MessagesToAnthropic(messages []Message) ([]anthropic.MessageParam, []anthro
 						Role:    role,
 						Content: content,
 					})
-					content = nil
 
 					resultContent := []anthropic.ToolResultBlockParamContentUnion{}
 
@@ -211,7 +209,6 @@ func MessagesToAnthropic(messages []Message) ([]anthropic.MessageParam, []anthro
 				Role:    role,
 				Content: content,
 			})
-			content = nil
 		}
 	}
 
@@ -228,7 +225,7 @@ func AnthropicToDataStream(stream *ssestream.Stream[anthropic.MessageStreamEvent
 
 	dataStream := func(yield func(DataStreamPart, error) bool) {
 		var lastChunk *anthropic.MessageStreamEventUnion
-		var finalReason FinishReason = FinishReasonUnknown
+		finalReason := FinishReasonUnknown
 		// var finalUsage Usage
 		var currentToolCall struct {
 			ID   string
@@ -394,23 +391,22 @@ func AnthropicToDataStream(stream *ssestream.Stream[anthropic.MessageStreamEvent
 
 		// Handle any errors from the stream
 		if err := stream.Err(); err != nil {
-			yield(nil, fmt.Errorf("anthropic stream error: %w", err))
+			if !yield(nil, fmt.Errorf("anthropic stream error: %w", err)) {
+				return
+			}
 			return
 		}
 
 		// If we didn't get a message stop event (e.g., stream ended abruptly),
 		// send a final finish message based on the last known state.
 		if lastChunk == nil || lastChunk.Type != "message_stop" {
-			if finalReason == FinishReasonUnknown {
-				finalReason = FinishReasonError // Indicate abnormal termination
+			if !yield(FinishStepPart{}, nil) {
+				return
 			}
 
-			yield(FinishStepPart{}, nil)
-
-			yield(FinishPart{
-				// FinishReason: finalReason,
-				// Usage:        finalUsage,
-			}, nil)
+			if !yield(FinishPart{}, nil) {
+				return
+			}
 		}
 	}
 
